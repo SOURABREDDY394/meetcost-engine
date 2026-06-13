@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AppAnomaly, AppData, AppMeeting, AppProject, ImportSummary } from "@/lib/app-types";
+import type { AppAnomaly, AppData, AppEmployee, AppMeeting, AppProject, ImportSummary } from "@/lib/app-types";
 
 export interface UserProfile {
   id: string;
@@ -21,7 +21,7 @@ export const profilesList: UserProfile[] = [
     initials: "SA",
     role: "ADMINISTRATOR",
     rank: "ADMIN / EXECUTIVE",
-    allowedViews: ["Dashboard", "Calendar Import", "Projects & Budgets", "AI Attribution", "Cost Ledger", "Budget Rescue", "Anomalies"],
+    allowedViews: ["Dashboard", "Calendar Import", "Projects & Budgets", "AI Attribution", "Cost Ledger", "Budget Rescue", "Anomalies", "Employees"],
   },
   {
     id: "user-project-lead",
@@ -31,7 +31,7 @@ export const profilesList: UserProfile[] = [
     rank: "PROJECT MANAGER",
     assignedProjectName: "Project Alpha",
     assignedProjectId: "project-001",
-    allowedViews: ["Dashboard", "Calendar Import", "Projects & Budgets", "Cost Ledger", "Anomalies"],
+    allowedViews: ["Dashboard", "Calendar Import", "Projects & Budgets", "Cost Ledger", "Anomalies", "Employees"],
   },
   {
     id: "user-tech-lead",
@@ -39,7 +39,7 @@ export const profilesList: UserProfile[] = [
     initials: "MI",
     role: "SENIOR ENGINEER",
     rank: "TECH LEAD",
-    allowedViews: ["Dashboard", "Calendar Import", "Projects & Budgets", "Cost Ledger"],
+    allowedViews: ["Dashboard", "Calendar Import", "Projects & Budgets", "Cost Ledger", "Employees"],
   },
   {
     id: "user-employee",
@@ -108,7 +108,7 @@ function ProfileSwitcherModal({
                     {profile.rank} • {profile.role}
                   </span>
                   <span className="text-[9px] text-[var(--dim)] mt-1">
-                    {profile.allowedViews.length === 7 ? "All Systems Access" : `Access to ${profile.allowedViews.length} views`}
+                    {profile.allowedViews.length >= 8 ? "All Systems Access" : `Access to ${profile.allowedViews.length} views`}
                     {profile.assignedProjectName && ` • Restricted to ${profile.assignedProjectName}`}
                   </span>
                 </div>
@@ -126,7 +126,7 @@ function ProfileSwitcherModal({
   );
 }
 
-type View = "Dashboard" | "Calendar Import" | "Projects & Budgets" | "AI Attribution" | "Cost Ledger" | "Budget Rescue" | "Anomalies";
+type View = "Dashboard" | "Calendar Import" | "Projects & Budgets" | "AI Attribution" | "Cost Ledger" | "Budget Rescue" | "Anomalies" | "Employees";
 type Theme = "dark" | "light";
 
 const navItems: Array<{ id: string; label: View; short: string; icon: IconName }> = [
@@ -137,9 +137,10 @@ const navItems: Array<{ id: string; label: View; short: string; icon: IconName }
   { id: "05", label: "Cost Ledger", short: "Financial record", icon: "ledger" },
   { id: "06", label: "Budget Rescue", short: "Action layer", icon: "rescue" },
   { id: "07", label: "Anomalies", short: "Risk center", icon: "alert" },
+  { id: "08", label: "Employees", short: "Team roster", icon: "employees" },
 ];
 
-type IconName = "grid" | "upload" | "folder" | "ai" | "ledger" | "rescue" | "alert" | "menu" | "close" | "sun" | "moon" | "refresh";
+type IconName = "grid" | "upload" | "folder" | "ai" | "ledger" | "rescue" | "alert" | "menu" | "close" | "sun" | "moon" | "refresh" | "employees";
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -155,6 +156,7 @@ function Icon({ name }: { name: IconName }) {
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
     moon: <path d="M20 15.5A8 8 0 0 1 8.5 4 8.2 8.2 0 1 0 20 15.5z" />,
     refresh: <><path d="M20 7v5h-5" /><path d="M18.3 17A8 8 0 1 1 20 12" /></>,
+    employees: <><circle cx="9" cy="7" r="4" /><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" /><path d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a4 4 0 0 0-3-3.87" /></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -661,6 +663,212 @@ function Anomalies({ anomalies, onRefresh, currentUser }: { anomalies: AppAnomal
   );
 }
 
+type EmployeeRow = AppEmployee;
+
+function Employees({ currentUser }: { currentUser: UserProfile }) {
+  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [removingId, setRemovingId] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({
+    displayName: "", email: "", roleName: "", department: "", team: "",
+  });
+
+  const ROLES = ["Leadership", "Product Lead", "Product Manager", "Senior Engineer", "Engineer", "Designer", "QA Engineer", "Operations"];
+
+  async function load() {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/employees");
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to load employees.");
+      setEmployees(result);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to load employees.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addEmployee(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/employees", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to add employee.");
+      setForm({ displayName: "", email: "", roleName: "", department: "", team: "" });
+      setShowForm(false);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to add employee.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeEmployee(id: string) {
+    if (!window.confirm("Remove this employee? This cannot be undone.")) return;
+    setRemovingId(id);
+    try {
+      const response = await fetch(`/api/employees/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || "Failed to remove.");
+      }
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to remove employee.");
+    } finally {
+      setRemovingId("");
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  const visible = employees.filter((emp) =>
+    !search ||
+    emp.display_name.toLowerCase().includes(search.toLowerCase()) ||
+    emp.role_name.toLowerCase().includes(search.toLowerCase()) ||
+    (emp.department || "").toLowerCase().includes(search.toLowerCase()) ||
+    (emp.team || "").toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const byDepartment = visible.reduce<Record<string, EmployeeRow[]>>((acc, emp) => {
+    const dept = emp.department || "Other";
+    (acc[dept] = acc[dept] || []).push(emp);
+    return acc;
+  }, {});
+
+  return (
+    <div className="view-stack">
+      <PageTitle index="08" kicker="TEAM ROSTER" title="Employees" detail="View, add, and manage team members. Cost bands are applied per role when calculating meeting expenses." />
+
+      <div className="section-actions" style={{ marginBottom: "20px" }}>
+        <span className="mono">{employees.length} TEAM MEMBERS</span>
+        {currentUser.role === "ADMINISTRATOR" && (
+          <button className="solid-action" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "CLOSE FORM" : "+ ADD EMPLOYEE"}
+          </button>
+        )}
+      </div>
+
+      {showForm && currentUser.role === "ADMINISTRATOR" && (
+        <section className="manual-entry panel" style={{ marginBottom: "24px" }}>
+          <div className="panel-head">
+            <div><p className="eyebrow">NEW TEAM MEMBER</p><h2>Add employee</h2></div>
+            <span className="mono">ROLE → COST BAND</span>
+          </div>
+          <form onSubmit={addEmployee} className="entry-form">
+            <label><span>Full name</span><input required value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="Priya Sharma" /></label>
+            <label><span>Email</span><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="priya@meetcost.demo" /></label>
+            <label>
+              <span>Role / Cost band</span>
+              <select required value={form.roleName} onChange={(e) => setForm({ ...form, roleName: e.target.value })}>
+                <option value="">Select a role…</option>
+                {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+              </select>
+            </label>
+            <label><span>Department</span><input value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="Engineering" /></label>
+            <label><span>Team</span><input value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} placeholder="Alpha" /></label>
+            {error && <p className="form-error mono">{error}</p>}
+            <button className="solid-action" disabled={busy}>{busy ? "ADDING..." : "ADD TO ROSTER"}</button>
+          </form>
+        </section>
+      )}
+
+      <div style={{ marginBottom: "20px" }}>
+        <input
+          type="search"
+          placeholder="Search by name, role, department or team…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{
+            width: "100%", padding: "10px 14px",
+            background: "var(--surface)", border: "1px solid var(--line)",
+            color: "var(--ink)", fontFamily: "var(--font-mono)", fontSize: "11px",
+            letterSpacing: "0.06em", outline: "none",
+          }}
+        />
+      </div>
+
+      {loading && <p className="mono" style={{ color: "var(--dim)", padding: "40px 0", textAlign: "center" }}>LOADING ROSTER...</p>}
+      {!loading && error && <p className="form-error mono">{error}</p>}
+      {!loading && !error && (
+        <section style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
+          {Object.entries(byDepartment).sort(([a], [b]) => a.localeCompare(b)).map(([dept, members]) => (
+            <article key={dept} className="panel">
+              <div className="panel-head">
+                <div><p className="eyebrow">DEPARTMENT</p><h2>{dept}</h2></div>
+                <span className="mono">{members.length} MEMBER{members.length !== 1 ? "S" : ""}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+                {members.map((emp, index) => (
+                  <div
+                    key={emp.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "36px 1fr 140px 100px auto",
+                      alignItems: "center",
+                      gap: "16px",
+                      padding: "12px 0",
+                      borderBottom: index < members.length - 1 ? "1px solid var(--line)" : "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: "36px", height: "36px", display: "grid", placeItems: "center",
+                        border: "1px solid var(--line)", fontFamily: "var(--font-serif)",
+                        fontSize: "11px", fontWeight: 700,
+                        background: "var(--navy)", color: "var(--accent)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {emp.display_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <strong style={{ display: "block", fontSize: "13px", fontFamily: "var(--font-serif)", color: "var(--ice)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{emp.display_name}</strong>
+                      <small className="mono" style={{ color: "var(--dim)", fontSize: "9px" }}>{emp.email || "—"}</small>
+                    </div>
+                    <span className="mono" style={{ fontSize: "10px", color: "var(--ice)" }}>{emp.role_name}</span>
+                    <span className="mono" style={{ fontSize: "10px", color: "var(--dim)" }}>{emp.team || "—"}</span>
+                    {currentUser.role === "ADMINISTRATOR" ? (
+                      <button
+                        onClick={() => void removeEmployee(emp.id)}
+                        disabled={removingId === emp.id}
+                        style={{
+                          fontSize: "9px", padding: "4px 10px", fontFamily: "var(--font-mono)",
+                          letterSpacing: "0.08em", border: "1px solid var(--line)",
+                          background: "transparent", color: "var(--dim)", cursor: "pointer",
+                          whiteSpace: "nowrap", transition: "border-color 0.15s, color 0.15s",
+                        }}
+                        onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.borderColor = "var(--accent)"; (e.target as HTMLButtonElement).style.color = "var(--accent)"; }}
+                        onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.borderColor = "var(--line)"; (e.target as HTMLButtonElement).style.color = "var(--dim)"; }}
+                      >
+                        {removingId === emp.id ? "REMOVING" : "REMOVE"}
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+          {visible.length === 0 && (
+            <p className="empty-copy mono" style={{ textAlign: "center", padding: "40px 0" }}>No employees match the search.</p>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
 function CostAssistant({ data, currentUser }: { data: AppData; currentUser: UserProfile }) {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
@@ -842,6 +1050,7 @@ export function MeetCostApp() {
           {data && activeView === "Cost Ledger" && <CostLedger meetings={data.meetings} />}
           {data && activeView === "Budget Rescue" && <BudgetRescue anomalies={data.anomalies} onRefresh={loadData} />}
           {data && activeView === "Anomalies" && <Anomalies anomalies={data.anomalies} onRefresh={loadData} currentUser={currentUser} />}
+          {activeView === "Employees" && <Employees currentUser={currentUser} />}
         </main>
         {data && <CostAssistant data={data} currentUser={currentUser} />}
         <ProfileSwitcherModal 

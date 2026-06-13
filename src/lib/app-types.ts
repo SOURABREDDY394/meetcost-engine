@@ -1,6 +1,17 @@
 export type MeetingRisk = "clear" | "review" | "risk";
 export type AnomalyStatus = "open" | "resolved";
 
+export type AppEmployee = {
+  id: string;
+  external_id: string | null;
+  display_name: string;
+  email: string | null;
+  role_name: string;
+  department: string | null;
+  team: string | null;
+  created_at: string;
+};
+
 export type AppProject = {
   id: string;
   name: string;
