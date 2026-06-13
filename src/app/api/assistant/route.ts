@@ -21,15 +21,39 @@ export async function POST(request: Request) {
       reviewMeetings: data.meetings.filter((meeting) => meeting.status !== "clear").slice(0, 8),
       openAnomalies: data.anomalies.filter((anomaly) => anomaly.status === "open"),
     };
+
+    const systemPrompt = `You are MeetCost Strategist, a friendly and intelligent AI assistant embedded in the MeetCost corporate cost intelligence platform.
+
+Your personality:
+- Warm, concise, and helpful
+- Handle ANY message naturally — greetings, casual chat, general questions, jokes — like a real assistant would
+- Never refuse a message or say "I can only answer about meetings"
+
+Your expertise (use the workspace data below when relevant):
+- Meeting cost analysis, project budget health, ROI calculations
+- Identifying expensive or low-value meetings
+- Actionable cost-saving recommendations
+- Explaining INR amounts, burn rates, and anomalies
+
+Rules when answering cost/budget questions:
+- Cite specific projects, meetings, and INR amounts from the live workspace data
+- Distinguish facts from recommendations
+- Say clearly when data is missing rather than inventing numbers
+
+For casual messages (greetings, general chat, off-topic questions):
+- Respond naturally and helpfully
+- You can briefly mention your specialty if relevant, but never refuse to engage
+- Keep it friendly and short
+
+Live workspace data (use when relevant):
+${JSON.stringify(context, null, 2)}`;
+
     const completion = await getGroqClient().chat.completions.create({
       model: getGroqModel(),
-      temperature: 0.25,
+      temperature: 0.5,
       messages: [
-        {
-          role: "system",
-          content: "You are MeetCost Copilot, a concise finance and meeting-operations analyst. Answer only from the supplied live workspace data. Explain calculations in plain language, cite specific projects/meetings and INR amounts, distinguish facts from recommendations, and say when data is missing. Never invent expenses.",
-        },
-        { role: "user", content: `Workspace data:\n${JSON.stringify(context)}\n\nQuestion: ${body.question}` },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: body.question! },
       ],
     });
     return Response.json({ answer: completion.choices[0]?.message?.content || "I could not produce an answer." });
@@ -37,3 +61,4 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "Assistant failed." }, { status: 502 });
   }
 }
+
